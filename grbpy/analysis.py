@@ -9,8 +9,12 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord
 try:
     from fermipy.gtanalysis import GTAnalysis
+    from gt_apps import *
+    from GtApp import GtApp
+    gtsrcprob = GtApp('gtsrcprob')
+
 except:
-    logging.warning("Fermitools is not installed. Any Fermi-LAT related analysis cannot be performed.")
+    print("Fermitools is not installed. Any Fermi-LAT related analysis cannot be performed.")
 
 import fermipy.wcs_utils as wcs_utils
 import fermipy.utils as fermi_utils
@@ -23,12 +27,6 @@ from . import utils
 from .utils import generatePHA, generatePSF, generateRSP
 
 from .config import InitConfig
-
-
-from gt_apps import *
-from GtApp import GtApp
-gtsrcprob = GtApp('gtsrcprob')
-
 
 from astropy.table import Table
 
@@ -50,12 +48,13 @@ def simple_analysis(name, info, tmin, tmax, verbosity=0, overwrite=False, **kwar
                 target="GRB", 
                 verbosity=verbosity)
     fix_all = kwargs.pop("fix_all", True)
+    fix_galdiff = kwargs.pop("fix_galdiff", False)
     fermi = FermiAnalysis(config=config, 
                 overwrite=overwrite, 
                 trigger=info["trigger"], 
                 grb_name=info["name"], 
                 verbosity=verbosity, **kwargs)
-    fermi.fit(fix_all=fix_all)
+    fermi.fit(fix_all=fix_all, fix_galdiff=fix_galdiff)
     fermi.analysis("sed", nbins=1)
     
     return fermi
@@ -69,9 +68,21 @@ def simple_load(config, info, table=None, **kwargs):
                       **kwargs)
     properties = [(fermi.basic_info["tmin"]+fermi.basic_info["tmax"])/2., 
                 fermi.basic_info["tmin"], fermi.basic_info["tmax"]]
+
+    sed = fermi.output["sed"]
+    indices = []
+
+    # for i, name in enumerate(sed["param_names"]):
+    #     if name in [b"Integral", b"Index"]:
+    #         properties += [ sed["param_values"][i], sed["param_errors"][i] ]
+    #         indices.append(i)
+
     for key in fermi.fit_info.keys():
-        properties += [fermi.fit_info[key][0], fermi.fit_info[key][1]]
+        properties += fermi.fit_info[key] 
+
     properties += [fermi.flux_info[key][0] for key in fermi.flux_info.keys()]
+    properties += [fermi.output["fit"]["cov"]]
+    
     table.add_row(properties)
     return table
 
@@ -296,9 +307,9 @@ class FermiAnalysis():
     
     @property
     def fit_info(self):
-        properties = ["Index", "Integral"]
-        return {prop: [self.output["fit"][prop]["value"], self.output["fit"][prop]["error"]] for prop in properties
-                }
+        f = self.output["fit"]
+        scales = self.gta.roi[self.target_name].spectral_pars
+        return {n: [f["values"][i]*scales[n]["scale"], abs(f["errors"][i]*scales[n]["scale"]), scales[n]["scale"]]  for i, n in enumerate(f["names"])}
         
     @property
     def flux_info(self):
@@ -524,7 +535,7 @@ class FermiAnalysis():
             self.gta.free_parameter("galdiff", "Index", free=False)
 
         self._fit_result = self.gta.fit(optimizer=optimizer, reoptimize=True, min_fit_quality=2, verbosity=False)
-
+        
         if remove_weak_srcs:
             self.remove_weak_srcs()
             self._fit_result = self.gta.fit(optimizer=optimizer, reoptimize=True, min_fit_quality=2, verbosity=False)
@@ -537,7 +548,15 @@ class FermiAnalysis():
         self.save_status(status_file)
 
         self._logging.info(f"The status is saved as '{status_file}'. You can load the status by vtspy.FermiAnalysis('{status_file}').")
-        self.output["fit"] = self.gta.roi.get_sources_by_name(self.target_name)[0].params
+        
+        indices = [i for i, name in enumerate(self._fit_result["src_names"]) if name == self.target_name]
+        names = np.array(self._fit_result["par_names"])[indices]
+        values = self._fit_result["values"][indices]
+        errors = self._fit_result["errors"][indices]
+        cov = self._fit_result["covariance"][indices][:,indices]
+        
+        self.output["fit"] = {"names": names, "values": values, "errors": errors, "cov": cov}
+
         np.save(f"{self._outdir}/{status_file}_output", self.output)
         np.save(f"{self._outdir}/latest_output", self.output)
         if return_output:

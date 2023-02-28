@@ -14,16 +14,16 @@ import logging
 
 logging.basicConfig(format=('%(asctime)s %(levelname)-8s: %(message)s'), datefmt='%Y-%m-%d %H:%M:%S', level=20)
 
-SCRIPT_DIR = str(Path(__file__).parent.absolute())
 
-MeV2Erg = 1.60218e-6
-TeV2Erg = 1.60218
+def center_pt_log(t1, t2):
+    return 10**((np.log10(t1)+np.log10(t2))/2.)
 
 def lc_table(**kwargs):
-    return Table(names = ["time", "t_min", "t_max", 
-                    "par_1", "par_1_err", "par_2", "par_2_err", 
-                    "ts", "e2dnde", "e2dnde_err", 
-                    "e2dnde_err_hi", "e2dnde_err_lo", "e2dnde_ul95"],
+    return Table(dtype = [("time", float), ("t_min", float), ("t_max", float), 
+                    ("par_1", float), ("par_1_err", float), ("par_1_scale", float), 
+                    ("par_2", float), ("par_2_err", float), ("par_2_scale", float),  
+                    ("ts", float), ("e2dnde", float), ("e2dnde_err", float), 
+                    ("e2dnde_err_hi", float), ("e2dnde_err_lo", float), ("e2dnde_ul95", float), ("cov", list)],
                     **kwargs)
 
 def logger(verbosity = 1):
@@ -76,6 +76,29 @@ def MET2UTC(met, return_astropy=False):
     else:
         return (refMET+dt).iso
 
+def MET2MJD(met, return_astropy=False):
+    """
+    Convert Fermi MET (Mission Elapsed Time) to MJD.
+
+    Args:
+        met (float): MET time in seconds
+        return_astropy (bool): return astropy.time
+    
+    Return:
+        str, astropy.time (optional): MJD time
+    """
+    if met is None:
+        return None
+
+    refMET = Time('2001-01-01', format='isot', scale='utc')
+
+    dt = TimeDelta(met, format='sec')
+
+    if return_astropy:
+        return (refMET+dt).mjd, refMET+dt
+    else:
+        return (refMET+dt).mjd
+
 def UTC2MET(utc):
     """
     Convert UTC to Fermi MET (mission elapsed time).
@@ -91,7 +114,10 @@ def UTC2MET(utc):
         
     refMET = Time('2001-01-01', format='isot', scale='utc')
     currentTime = Time(utc, format='isot', scale='utc')
-    return float((currentTime-refMET).sec)
+    if np.size(currentTime) == 1:
+        return float((currentTime-refMET).sec)
+    else:
+        return ((currentTime-refMET).sec).astype("float")
 
 def METnow():
 	"""
@@ -139,7 +165,11 @@ def UTC2MJD(utc):
         return None
         
     refUTC= Time(utc, format='isot', scale='utc')
-    return float(refUTC.mjd)
+
+    if np.size(refUTC) == 1:
+        return float(refUTC.mjd)
+    else:
+        return (refUTC.mjd).astype("float")
 
 def CEL2GAL(ra, dec):
     """
@@ -200,7 +230,7 @@ def define_time_intervals(tmin, tmax, binsz=None, nbins=None):
         nbins +=1
         times = tmin + np.arange(nbins) * binsz
 
-    if len(times) == 1:
+    if np.size(times) == 1:
         time_intervals = [Time([tmin, tmax])]
     else:
         time_intervals = [Time([tstart, tstop]) for tstart, tstop in zip(times[:-1], times[1:])]
@@ -276,3 +306,26 @@ def generatePHA(config):
     evtbin['chatter'] = 0
     evtbin.run()
 
+def read_lat_in_threeML(name, filename):
+    from .config import InitConfig
+    from threeML import FermipyLike
+    init_config = InitConfig(filename, verbosity=False)
+    config = init_config.create_threeml_config()
+    lat = FermipyLike(name, config)
+    lat._configuration["fileio"]["outdir"] = init_config.info["fileio"]['outdir'] + "/threeml"
+    return lat
+
+
+def merge_tables(tab_1, tab_2, name=None):
+    if name is not None:
+        flag = [t[name] in tab_1[name] for t in tab_2]
+        tab_2 = tab_2[flag]
+    elif len(tab_1) != len(tab_2):
+        return
+
+    for key in tab_2.dtype.names:
+        if key == name:
+            continue
+        else:
+            tab_1.add_column(tab_2[key], name = key)
+    return tab_1

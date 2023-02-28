@@ -13,7 +13,39 @@ import re
 from .config import InitConfig
 from .utils import logger
 
-class DownloadFermiData:
+from tqdm.notebook import tqdm
+
+class DownloadFermiGBMData:
+    address="https://heasarc.gsfc.nasa.gov/FTP/fermi/data/gbm/bursts/"
+
+    def __init__(self, full_name, outdir=None, **kwargs):
+        self.full_name = full_name
+        self.yr = self.full_name[2:4]
+        if outdir is None:
+            basedir = kwargs.pop("basedir", "./")
+            basedir = str(Path(basedir).absolute())
+            outdir = "gbm"
+            outdir = Path(basedir, outdir)
+            outdir.mkdir(parents=True, exist_ok=True)
+            self.outdir = str(outdir.absolute())
+
+        self._download()
+        return
+    def _download(self):
+        path = f"{self.address}/20{self.yr}/{self.full_name}/current/"
+        website = urllib.request.urlopen(path)
+        html = website.read()
+        files = []
+        
+        for line in html.split():
+            file = re.findall('href="([a-zA-Z0-9._]+)"', str(line))
+            if len(file) == 1:
+                files.append(file[0])
+        
+        for filename in tqdm(files):
+            urllib.request.urlretrieve(path+filename, f"{self.outdir}/{filename}")
+
+class DownloadFermiLATData:
     
     def __init__(self, config_file = None, target="GRB", ra=None, dec=None, trigger=None, radius=20, 
         dtype="Extended", add_tmin=-100, add_tmax=10000, verbosity = 1, **kwargs):
@@ -224,17 +256,21 @@ class DownloadFermiData:
 
         for lk in links:
             self._logging.info("Downloading... "+lk)
+            urllib.request.urlretrieve(lk, f"{self.outdir}/{fileName}.fits")
+
+        for lk in links:
             fileName = lk[-9:-5]
-            
+        
             if self.config is not None:
                 if "SC" in lk:
                     self.config['data']['scfile'] = f"{self.outdir}/{fileName}.fits"
-            
-            if "EV" in lk:
-                with open(f"{self.outdir}/EV00.lst", "w") as f:
-                    f.write(f"{self.outdir}/{fileName}.fits\n")
+                    break
 
-            urllib.request.urlretrieve(lk, f"{self.outdir}/{fileName}.fits")
+        with open(f"{self.outdir}/EV00.lst", "w") as f:
+            for lk in links:
+                fileName = lk[-9:-5]
+                if "EV" in lk:
+                    f.write(f"{self.outdir}/{fileName}.fits\n")
 
         self._logging.info("Downloading the Fermi-LAT data has been completed.")
         os.system(f"rm {self.outdir}/fermi_dwn_link.npy")

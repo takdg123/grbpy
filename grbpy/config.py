@@ -6,11 +6,13 @@ import yaml
 from astropy.io import fits
 
 from . import utils
-from .utils import logger, SCRIPT_DIR
+from .utils import logger
+from .const import SCRIPT_DIR
 
 from pathlib import Path
 
 import numpy as np
+
 
 class InitConfig:
 	"""
@@ -26,7 +28,7 @@ class InitConfig:
 	    **kwargs: passed to JointConfig.init
 	"""
 
-	def __init__(self, outdir = "lat", file_name="config.yaml", verbosity=1, overwrite=True, **kwargs):
+	def __init__(self, file_name="config.yaml", outdir = "./", verbosity=1, overwrite=True, **kwargs):
 		
 		self._logging = logger(verbosity=verbosity)
 
@@ -40,7 +42,7 @@ class InitConfig:
 		self._outdir = Path(basedir, outdir)
 		self._path = Path(self._outdir, file_name)
 
-		if self.path.is_file() and not(overwrite):
+		if self.path.is_file():
 			self.info = self.get_config(self.path)
 			if verbosity:
 				self.print_config(self.path)
@@ -234,3 +236,21 @@ class InitConfig:
 		        info[key][val] = kwargs.pop(val, info[key][val])
 		return info
 
+	
+	def create_threeml_config(self):
+		from threeML import FermipyLike
+
+		threeml_config = FermipyLike.get_basic_config(
+		    evfile=self.info["data"]["evfile"],
+		    scfile=self.info["data"]["scfile"],
+		    ra = self.info["selection"]["ra"],
+		    dec = self.info["selection"]["dec"],
+		)
+
+		for key in list(self.info.keys()):
+			for subkey in list(self.info[key].keys()):
+				if key in threeml_config.keys():
+					if subkey in threeml_config[key].keys():
+						threeml_config[key][subkey] = self.info[key][subkey]
+
+		return threeml_config

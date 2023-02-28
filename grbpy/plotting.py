@@ -3,7 +3,7 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 
-from . import utils
+from . import const
 
 from .config import InitConfig
 
@@ -13,7 +13,6 @@ from scipy.stats import norm
 import astropy.units as u
 
 from astropy.io import fits
-
 
 
 def fermi_plotter(name, fermi, subplot = None, **kwargs):
@@ -254,30 +253,44 @@ def plot_sed(output, show_model=True, show_band=True, show_flux_points=True, erg
     fig = plt.gcf()
     return fig
 
-def plot_lc(lc, ts_cut = 9, ax = None, **kwargs):
+def plot_lc(lc, ts_cut = 9, ax = None, units="MeV", t_shift = 0, **kwargs):
     if ax is None:
         ax = plt.gca()
     consts = lc["ts"] > ts_cut
-    prop = ax.errorbar(lc["time"][consts], lc["e2dnde"][consts], 
+
+    if units == "erg":
+        e_conv = const.MeV2Erg
+        ax.set_ylabel(r"Energy flux [erg/cm$^{2}$/s]")
+    elif units == "TeV":
+        e_conv = 1/1000.
+        ax.set_ylabel(r"Energy flux [TeV/cm$^{2}$/s]")
+    else:
+        e_conv = 1
+        ax.set_ylabel(r"Energy flux [MeV/cm$^{2}$/s]")
+        
+
+    prop = ax.errorbar(lc["time"][consts]+t_shift, lc["e2dnde"][consts]*e_conv, 
              xerr = [lc["time"][consts]-lc["t_min"][consts], lc["t_max"][consts]-lc["time"][consts]], 
-             yerr=[lc["e2dnde_err_lo"][consts], lc["e2dnde_err_hi"][consts]], ls="", **kwargs)
-    ax.errorbar(lc["time"][~consts], lc["e2dnde_ul95"][~consts], 
+             yerr=[lc["e2dnde_err_lo"][consts]*e_conv, lc["e2dnde_err_hi"][consts]*e_conv], ls="", **kwargs)
+    ax.errorbar(lc["time"][~consts]+t_shift, lc["e2dnde_ul95"][~consts]*e_conv, 
                  xerr = [lc["time"][~consts]-lc["t_min"][~consts], lc["t_max"][~consts]-lc["time"][~consts]], 
-                 yerr = lc["e2dnde_ul95"][~consts]*0.2, c=prop[0].get_color(),
+                 yerr = lc["e2dnde_ul95"][~consts]*e_conv*0.2, c=prop[0].get_color(),
                  uplims=True, ls="")
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlabel("Time since trigger [s]")
-    ax.set_ylabel(r"Energy flux [MeV/cm$^{2}$/s]")
+
     ax.grid(which="major")
     ax.grid(which="minor", ls=":", alpha=0.5)
 
-def plot_cnt_lc(event=None, binsz=10, c=None, t_shift = 0, units="MeV", cnt_only=False):
+    return ax, prop
+
+def plot_cnt_lc(event=None, binsz=10, c=None, t_shift = 0, min_t = None, max_t = None, units="MeV", show_cnt=False):
     
     if event is None:
         return
     elif type(event) == str:
-        config = InitConfig.get_config(config_file=event)
+        config = InitConfig.get_config(event)
         with open(config["data"]["evfile"]) as f:
             event = fits.open(f.readlines()[0][:-1])[1].data
     
@@ -286,7 +299,7 @@ def plot_cnt_lc(event=None, binsz=10, c=None, t_shift = 0, units="MeV", cnt_only
             event = fits.open(f.readlines()[0][:-1])[1].data
 
     ax = plt.gca()
-    if not(cnt_only):
+    if show_cnt:
         ax2 = ax.twinx()
         if units == "GeV":
             event_e = event["ENERGY"]/1e3
@@ -304,9 +317,15 @@ def plot_cnt_lc(event=None, binsz=10, c=None, t_shift = 0, units="MeV", cnt_only
         cmap = None
         cbaxes = None
     
-    event_t = event["TIME"] - t_shift
+    event_t = event["TIME"] + t_shift
     
-    if not(cnt_only):
+    if min_t is not None:
+        event_t = event_t[event_t>min_t]
+
+    if max_t is not None:
+        event_t = event_t[event_t<max_t]
+    
+    if show_cnt:
         sc = ax2.scatter(event_t, event_e, c=c, cmap=cm, alpha=0.5, zorder=-1)
         if cbaxes is not None:
             plt.colorbar(sc, cax=cbaxes, label="Probability")
@@ -327,3 +346,61 @@ def plot_cnt_lc(event=None, binsz=10, c=None, t_shift = 0, units="MeV", cnt_only
     plt.tight_layout()
     return ax, event
 
+def get_butterfly(model, N, N_err, gamma, gamma_err, N_scale=1e3, gamma_scale=1, cov=None, Emin=1e2, Emax=1e4, input_unit="MeV", output_unit = "erg", 
+    show_plot=False, scale=1, ax=None, sampling=False, **kwargs):
+    
+    def powerlaw(E, N, gamma):
+        return np.asarray([N*eng**(gamma) for eng in E])
+ 
+    def powerlaw2(E, N, gamma, Emin, Emax):
+        return np.asarray([N*(gamma+1)*eng**(gamma)/(Emax**(gamma+1)-Emin**(gamma+1)) for eng in E])
+    
+
+    E = np.geomspace(Emin, Emax, kwargs.pop("nbins", 101))
+    
+    const = kwargs.pop("const", 1)    
+    factor = getattr(u, input_unit).to(getattr(u, output_unit))*const
+
+    size = kwargs.pop("size", 10000)
+
+    if cov is None:
+        N_sample = np.random.normal(N, scale=abs(N_err), size=size)
+        gamma_sample = np.random.normal(gamma, scale=abs(gamma_err), size=size)
+
+    else:
+        mean = [N*N_scale, gamma*gamma_scale]
+        pars = np.random.multivariate_normal(np.asarray(mean), cov, size)
+        N_sample = pars[:,0]/N_scale
+        gamma_sample = pars[:,1]/gamma_scale
+    
+    if model == "powerlaw2":
+        F = powerlaw2(E, N, gamma, kwargs.pop("pl2_emin", 1e2), kwargs.pop("pl2_emax", 1e4))*factor/scale**2
+        F_sample = powerlaw2(E, N_sample, gamma_sample, kwargs.pop("pl2_emin", 1e2), kwargs.pop("pl2_emax", 1e4))*factor/scale**2
+        
+    elif model == "powerlaw":
+        F = powerlaw(E, N, gamma)*factor/scale**2
+        F_sample =  powerlaw(E, N_sample, gamma_sample)*factor/scale**2
+
+    F_band = np.asarray([[e, f, np.percentile(fs, 16), np.percentile(fs, 84)] for e, f, fs in zip(E, F, F_sample)])
+    E = E*scale
+
+    if show_plot:
+        if ax is None:
+            ax = plt.gca()
+
+        fill = kwargs.pop("fill", True)
+        props = ax.plot(E, (E)**2*F_band[:,1], **kwargs)
+
+        if fill:
+            ax.fill_between(E, (E)**2*F_band[:,2], (E)**2*F_band[:,3], 
+                             color=props[0].get_color(), alpha=0.3)
+        else:
+            ax.fill_between(E, (E)**2*F_band[:,2], (E)**2*F_band[:,3], 
+                             facecolor="white", edgecolor=props[0].get_color(), alpha=0.3)
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+    elif sampling:
+        return F_band, E, F_sample.T
+    else:
+        return F_band
+    
