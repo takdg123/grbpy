@@ -42,7 +42,7 @@ class InitConfig:
 		self._outdir = Path(basedir, outdir)
 		self._path = Path(self._outdir, file_name)
 
-		if self.path.is_file():
+		if self.path.is_file() and overwrite == False:
 			self.info = self.get_config(self.path)
 			if verbosity:
 				self.print_config(self.path)
@@ -101,8 +101,8 @@ class InitConfig:
 			return
 
 		if instrument.lower() == "fermi" or instrument.lower() == "all":
-			self.config["selection"]["tmin"] = tmin_met
-			self.config["selection"]["tmax"] = tmax_met
+			self.config["selection"]["tmin"] = float(tmin_met)
+			self.config["selection"]["tmax"] = float(tmax_met)
 
 		
 		self.set_config(self.path, self.config)
@@ -137,9 +137,9 @@ class InitConfig:
 		with open(path, "w") as f:
 			yaml.dump(info, f)
 
-
-	@classmethod
-	def print_config(self, path):
+	def print_config(self, path=None):
+		if path is None:
+			path = str(self.path)
 		self.config = self.get_config(path)
 		
 		self._logging = logger()
@@ -165,12 +165,14 @@ class InitConfig:
 						info[key].pop(subkey)
 		return info
 
-	def _empty4fermi(self, gald = "gll_iem_v07.fits", irf="TRANSIENT020E", **kwargs):
+	def _empty4fermi(self, **kwargs):
 		
-		self._outdir.mkdir(parents=True, exist_ok=True)
-		
+		gald = kwargs.pop("gald", "gll_iem_v07.fits")
+		irf = kwargs.pop("irf", "TRANSIENT020E")
 		datadir = kwargs.pop("datadir", None)
 
+		self._outdir.mkdir(parents=True, exist_ok=True)
+		
 		if datadir is not None:
 			datadir = Path(str(self._outdir.parent), datadir)
 			datadir.mkdir(parents=True, exist_ok=True)
@@ -190,24 +192,24 @@ class InitConfig:
  					},
  				'binning': {
  					'roiwidth': 12,
-  					'binsz': 0.2,
+  					'binsz': 0.1,
   					'binsperdec': 10,
-  					'coordsys': "CEL",
+  					'coordsys': kwargs.pop("coordsys", "CEL"),
   					'projtype': 'WCS',
   					},
  				'selection': {
  					'radius': 12,
- 					'emin': 100,
-					'emax': 100000,
-					'tmin': None,
-					'tmax': None,
-					'zmax': 100,
+ 					'emin': kwargs.pop("emin", 100),
+					'emax': kwargs.pop("emin", 100000),
+					'tmin': kwargs.pop("emin", None),
+					'tmax': kwargs.pop("emin", None),
+					'zmax': kwargs.pop("zmax", 105),
 					'evclass': evclass,
 					'evtype': 3,
-					'glon': None,
-					'glat': None,
-					'ra': None,
-					'dec': None,
+					'glon': kwargs.pop("glon", None),
+					'glat': kwargs.pop("glat", None),
+					'ra': kwargs.pop("ra", None),
+					'dec': kwargs.pop("dec", None),
 					'target': None,
 					'filter': "(DATA_QUAL>0||DATA_QUAL==-1||DATA_QUAL==1)&&(LAT_CONFIG==1)",
 					'roicut': 'yes'
@@ -218,7 +220,7 @@ class InitConfig:
 					'edisp_disable': ['isodiff', 'galdiff']
 					},
 				'model': {
-					'src_radius': 12,
+					'src_radius': 22,
 					'galdiff': f'$FERMI_DIFFUSE_DIR/{gald}',
 					'isodiff': f'$FERMI_DIFFUSE_DIR/iso_P8R3_{irf}_V3_v1.txt',
 					'catalogs': ['4FGL-DR3'],

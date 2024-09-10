@@ -143,7 +143,8 @@ def cr_plot(beta=None, alpha=None, beta_err=None, alpha_err=None, ax=None, plot_
         
         ax.plot(0.5, 0.25, marker='o', ls="", markersize=5, color='pink', markeredgecolor='pink', lw=0.7, label=lab[0])
         
-#        ax.plot(np.linspace(0, 4, 10), np.linspace(0, 4, 10)+2, color='k', ls='-', lw=0.7, label="HLE")
+        if kwargs.pop("add_hle", False):
+            ax.plot(np.linspace(0, 4, 10), np.linspace(0, 4, 10)+2, color='k', ls='-', lw=0.7, label="HLE")
 
         if plot_equal_p:
             if p_values is None:

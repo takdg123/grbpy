@@ -22,6 +22,35 @@ empty_fit_table = Table(dtype=[("file", str), ("index", float), ("index_lo", flo
                              ("nH", float), ("nH_lo", float), ("nH_hi", float), ("cov", list), (r"cstat", float), ("dof", int)])
 
 
+def read_qdp_bat(file_name, t_shift=0):
+    with open(file_name) as file:
+        lines = file.readlines()
+        flag=None
+        flux=[]
+        gamma=[]
+        for line in lines:
+            if "flux" in line:
+                flag="flux"
+                continue
+            elif "gamma" in line:
+                flag="gamma"
+                continue
+            l = line.split()
+            if l[0] != "NO":
+                if flag == "flux":
+                    flux.append(line.split())
+                elif flag == "gamma":
+                    gamma.append(line.split())
+            
+    flux = np.asarray(flux)
+    gamma = np.asarray(gamma)
+
+    vals = [list(f)+list(g[3:]) for f, g in zip(flux, gamma) if float(f[3])>0 and float(g[4])<1]
+    vals = np.asarray(vals).astype("float")
+    tab = Table(vals, names=["time", "time_err_hi", "time_err_lo", "flux", "flux_err_hi", "flux_err_lo", "gamma", "gamma_err_hi", "gamma_err_lo"])
+    tab["time"] += t_shift
+    return tab
+
 def read_qdp(file_name, t_shift=0):
     
     with open(file_name) as file:
@@ -78,7 +107,12 @@ def plot_lc(tab, ax=None, t_shift = 0, target="flux", factor=1, **kwargs):
     if target == "nH":
         flag = p<10
 
-    prop = ax.errorbar(t[flag], p[flag]*factor, 
+    if target == "index" and kwargs.pop("spectral", False):
+        prop = ax.errorbar(t[flag], p[flag]*factor-1, 
+                 xerr = [abs(t_lo[flag]), t_hi[flag]], 
+                 yerr = [-p_lo[flag]*factor, p_hi[flag]*factor], ls="", **kwargs)
+    else:
+        prop = ax.errorbar(t[flag], p[flag]*factor, 
                  xerr = [abs(t_lo[flag]), t_hi[flag]], 
                  yerr = [-p_lo[flag]*factor, p_hi[flag]*factor], ls="", **kwargs)
     ax.set_xscale("log")
@@ -93,7 +127,7 @@ def plot_lc(tab, ax=None, t_shift = 0, target="flux", factor=1, **kwargs):
 
     return ax, prop
 
-def calculate_flux(table, energy_band = [0.5, 10], units="keV", export=False):
+def calculate_flux(table, energy_band = [0.3, 10], units="keV", export=False):
     output = Table(names = ["time", "time_err_lo", "time_err_hi", "flux", "flux_err", "flux_err_lo", "flux_err_hi"])
     for i, tab in enumerate(table):
         
@@ -126,7 +160,7 @@ def calculate_flux(table, energy_band = [0.5, 10], units="keV", export=False):
     else:
         return output
 
-def get_butterfly(table, show_plot=False, ax=None, emin=0.5, emax = 10, scale=1, units="keV", **kwargs):
+def get_butterfly(table, show_plot=False, ax=None, emin=0.3, emax = 10, scale=1, units="keV", **kwargs):
 
     E = np.geomspace(emin, emax, kwargs.pop("nbins", 101))/scale
 
@@ -195,7 +229,7 @@ def read_xrt_in_threeML(path, mode, name="XRT", **kwargs):
             response=glob(str(p.absolute())+f"/*{mode}.rmf")[0],
             arf_file=glob(str(p.absolute())+f"/*{mode}.arf")[0],
         )
-    emin = kwargs.pop("emin", 0.5)
+    emin = kwargs.pop("emin", 0.3)
     emax = kwargs.pop("emax", 10.)
     data.set_active_measurements(f"{emin}-{emax}")
     
@@ -229,7 +263,7 @@ def read_nustar_in_threeML(path, name="NuSTAR", teldef = "A", **kwargs):
 class xspec_analysis:
     
     
-    XRT_E_BAND = [0.5, 10.]
+    XRT_E_BAND = [0.3, 10.]
     NUSTAR_E_BAND = [3., 79.]
 
     def __init__(self, data, instrument="XRT", mode = None, nH = 1e22, z=0, verbose=True):

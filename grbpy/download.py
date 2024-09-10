@@ -18,7 +18,7 @@ from tqdm.notebook import tqdm
 class DownloadFermiGBMData:
     address="https://heasarc.gsfc.nasa.gov/FTP/fermi/data/gbm/bursts/"
 
-    def __init__(self, full_name, outdir=None, **kwargs):
+    def __init__(self, full_name, outdir=None, download=True, **kwargs):
         self.full_name = full_name
         self.yr = self.full_name[2:4]
         if outdir is None:
@@ -29,9 +29,11 @@ class DownloadFermiGBMData:
             outdir.mkdir(parents=True, exist_ok=True)
             self.outdir = str(outdir.absolute())
 
-        self._download()
+        if download:
+            self.download()
         return
-    def _download(self):
+
+    def download(self, target = "all", dtype="pha"):
         path = f"{self.address}/20{self.yr}/{self.full_name}/current/"
         website = urllib.request.urlopen(path)
         html = website.read()
@@ -41,9 +43,14 @@ class DownloadFermiGBMData:
             file = re.findall('href="([a-zA-Z0-9._]+)"', str(line))
             if len(file) == 1:
                 files.append(file[0])
-        
-        for filename in tqdm(files):
-            urllib.request.urlretrieve(path+filename, f"{self.outdir}/{filename}")
+
+        if target =="all":
+            for filename in tqdm(files):
+                urllib.request.urlretrieve(path+filename, f"{self.outdir}/{filename}")
+        else:
+            for filename in tqdm(files):
+                if (target in filename) and (dtype in filename):
+                    urllib.request.urlretrieve(path+filename, f"{self.outdir}/{filename}")
 
 class DownloadFermiLATData:
     
@@ -84,8 +91,12 @@ class DownloadFermiLATData:
             self.emax = kwargs.pop("emax", 300000)
             self.dtype = dtype
         else:
-            self.config_file = config_file
-            self.config = InitConfig.get_config(self.config_file)
+            if type(config_file) == str:
+                self.config_file = config_file
+                self.config = InitConfig.get_config(self.config_file)
+            else:
+                self.config = config_file
+
             self.outdir = self.config["fileio"]["outdir"]
 
             if self.config['selection']['target'] == None:
@@ -111,8 +122,8 @@ class DownloadFermiLATData:
                 self._logging.error("[Error] Time range is not specfied.")
                 return
 
-            self.emin = min(100, self.config['selection']['emin'])
-            self.emax = max(300000, self.config['selection']['emax'])
+            self.emin = self.config['selection']['emin']
+            self.emax = self.config['selection']['emax']
             self.dtype = dtype
 
         success = self._query()
@@ -193,8 +204,9 @@ class DownloadFermiLATData:
             if len(estimatedTimeForTheQuery)>0:
                 estimatedTimeForTheQuery = estimatedTimeForTheQuery[0]
                 break
-
+        
         for ln, t in enumerate(text):
+
             address = re.findall("your query may be found ([a-z]+) ",t)
             if len(address)>0:
                 line_number = ln
@@ -255,6 +267,7 @@ class DownloadFermiLATData:
         links = np.load(f"{self.outdir}/fermi_dwn_link.npy")
 
         for lk in links:
+            fileName = lk[-9:-5]
             self._logging.info("Downloading... "+lk)
             urllib.request.urlretrieve(lk, f"{self.outdir}/{fileName}.fits")
 

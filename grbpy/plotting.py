@@ -269,12 +269,12 @@ def plot_lc(lc, ts_cut = 9, ax = None, units="MeV", t_shift = 0, **kwargs):
         ax.set_ylabel(r"Energy flux [MeV/cm$^{2}$/s]")
         
 
-    prop = ax.errorbar(lc["time"][consts]+t_shift, lc["e2dnde"][consts]*e_conv, 
+    prop = ax.errorbar(lc["time"][consts]+t_shift, lc["eflux"][consts]*e_conv, 
              xerr = [lc["time"][consts]-lc["t_min"][consts], lc["t_max"][consts]-lc["time"][consts]], 
-             yerr=[lc["e2dnde_err_lo"][consts]*e_conv, lc["e2dnde_err_hi"][consts]*e_conv], ls="", **kwargs)
-    ax.errorbar(lc["time"][~consts]+t_shift, lc["e2dnde_ul95"][~consts]*e_conv, 
+             yerr=lc["eflux_err"][consts]*e_conv, ls="", **kwargs)
+    ax.errorbar(lc["time"][~consts]+t_shift, lc["eflux_ul95"][~consts]*e_conv, 
                  xerr = [lc["time"][~consts]-lc["t_min"][~consts], lc["t_max"][~consts]-lc["time"][~consts]], 
-                 yerr = lc["e2dnde_ul95"][~consts]*e_conv*0.2, c=prop[0].get_color(),
+                 yerr = lc["eflux_ul95"][~consts]*e_conv*0.2, c=prop[0].get_color(),
                  uplims=True, ls="")
     ax.set_xscale("log")
     ax.set_yscale("log")
@@ -309,7 +309,7 @@ def plot_cnt_lc(event=None, binsz=10, c=None, t_shift = 0, min_t = None, max_t =
             ax2.set_ylabel("Energy [MeV]", fontsize=15)
 
     if c is not None:
-        cm = plt.cm.get_cmap('YlOrBr')
+        cm = plt.cm.get_cmap('OrRd')
         cbaxes = plt.gcf().add_axes([1, 0.1, 0.02, 0.9]) 
     else:
         c = "gray"
@@ -326,12 +326,12 @@ def plot_cnt_lc(event=None, binsz=10, c=None, t_shift = 0, min_t = None, max_t =
         event_t = event_t[event_t<max_t]
     
     if show_cnt:
-        sc = ax2.scatter(event_t, event_e, c=c, cmap=cm, alpha=0.5, zorder=-1)
+        sc = ax2.scatter(event_t, event_e, c=c, cmap=cm, zorder=-1)
         if cbaxes is not None:
             plt.colorbar(sc, cax=cbaxes, label="Probability")
         ax2.set_yscale("log")
         ax2.grid(which="major", ls="-")
-        ax2.grid(which="minor", ls="--", alpha=0.3)
+        ax2.grid(which="minor", ls="--")
     
     ax.hist(event_t, bins = np.arange(min(event_t), max(event_t)+binsz, binsz), zorder=1)
     

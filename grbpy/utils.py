@@ -22,8 +22,8 @@ def lc_table(**kwargs):
     return Table(dtype = [("time", float), ("t_min", float), ("t_max", float), 
                     ("par_1", float), ("par_1_err", float), ("par_1_scale", float), 
                     ("par_2", float), ("par_2_err", float), ("par_2_scale", float),  
-                    ("ts", float), ("e2dnde", float), ("e2dnde_err", float), 
-                    ("e2dnde_err_hi", float), ("e2dnde_err_lo", float), ("e2dnde_ul95", float), ("cov", list)],
+                    ("ts", float), ("eflux", float), ("eflux_err", float), 
+                    ("eflux_ul95", float), ("cov", list)],
                     **kwargs)
 
 def logger(verbosity = 1):
@@ -98,6 +98,23 @@ def MET2MJD(met, return_astropy=False):
         return (refMET+dt).mjd, refMET+dt
     else:
         return (refMET+dt).mjd
+
+def MJD2MET(mjd):
+    """
+    Convert MJD to Fermi MET (Mission Elapsed Time).
+
+    Args:
+        mjd (float): MJD time in seconds
+    
+    Return:
+        float: MET time
+    """
+    if mjd is None:
+        return None
+
+    utc = MJD2UTC(mjd)
+    met = UTC2MET(utc)
+    return met
 
 def UTC2MET(utc):
     """
@@ -185,23 +202,24 @@ def CEL2GAL(ra, dec):
     if ra is None or dec is None:
         return None, None
 
-    c = SkyCoord(ra=float(ra)*u.degree, dec=float(dec)*u.degree, frame='icrs')
+    c = SkyCoord(ra=ra*u.degree, dec=dec*u.degree, frame='icrs')
     return c.galactic.l.deg, c.galactic.b.deg
 
 def GAL2CEL(l, b):
     """
-    Convert MJD (Modified Julian Day) to UTC.
+    Convert GAL (galactic) coordinates to CEL (celestial) coordinates.
 
     Args:
-    mjd (astorpy.time): MJD time
+        l (float): longitudes in degrees
+        b (float): latitudes in degrees
 
     Return:
-        astropy.time: UTC
+        deg, deg
     """
     if l is None or b is None:
         return None, None
 
-    c = SkyCoord(l=float(l)*u.degree, b=float(b)*u.degree, frame='galactic')
+    c = SkyCoord(l=l*u.degree, b=b*u.degree, frame='galactic')
     return c.icrs.ra.deg, c.icrs.dec.deg 
 
 def define_time_intervals(tmin, tmax, binsz=None, nbins=None):

@@ -1,4 +1,7 @@
-from . import analysis, config, const, download, plotting, utils
+try:
+	from . import analysis, config, const, download, plotting, utils
+except:
+	pass
 
 
 import numpy as np

@@ -42,7 +42,7 @@ def simple_analysis(name, info, tmin, tmax, verbosity=0, overwrite=False, **kwar
                 tmax=tmax+info["trigger"], 
                 emin=info['emin'], 
                 emax = info['emax'], 
-                irf="SOURCE",
+                irf=info.pop("irf", "SOURCE"),
                 datadir="data", 
                 overwrite=overwrite, 
                 target="GRB", 
@@ -55,7 +55,7 @@ def simple_analysis(name, info, tmin, tmax, verbosity=0, overwrite=False, **kwar
                 grb_name=info["name"], 
                 verbosity=verbosity, **kwargs)
     fermi.fit(fix_all=fix_all, fix_galdiff=fix_galdiff)
-    fermi.analysis("sed", nbins=1)
+    #fermi.analysis("sed", nbins=1)
     
     return fermi
 
@@ -69,7 +69,7 @@ def simple_load(config, info, table=None, **kwargs):
     properties = [(fermi.basic_info["tmin"]+fermi.basic_info["tmax"])/2., 
                 fermi.basic_info["tmin"], fermi.basic_info["tmax"]]
 
-    sed = fermi.output["sed"]
+    #sed = fermi.output["sed"]
     indices = []
 
     # for i, name in enumerate(sed["param_names"]):
@@ -80,7 +80,7 @@ def simple_load(config, info, table=None, **kwargs):
     for key in fermi.fit_info.keys():
         properties += fermi.fit_info[key] 
 
-    properties += [fermi.flux_info[key][0] for key in fermi.flux_info.keys()]
+    properties += [fermi.flux_info[key] for key in fermi.flux_info.keys()]
     properties += [fermi.output["fit"]["cov"]]
     
     table.add_row(properties)
@@ -124,7 +124,7 @@ class FermiAnalysis():
                     config = InitConfig.get_config(config+".yaml")   
                 except:
                     self._logging.error("Check your config.")
-        elif type(config) == InitConfig:
+        else:
             config = config.info
         
         self._logging.info("Initialize the Fermi-LAT analysis.")
@@ -154,7 +154,7 @@ class FermiAnalysis():
                 self._logging.info("Initial setup and configuration are not found. Performing the data reduction...")
 
             #os.system(f"rm -rf {self._outdir}/*")
-
+            #self.gta.config["data"]["ltcube"] = f"{self._outdir}/ltcube_00.fits"
             self._logging.debug("Generate fermipy files.")
             self.gta.setup(overwrite=overwrite)
 
@@ -184,8 +184,8 @@ class FermiAnalysis():
 
             self.gta.optimize()
 
-
-            self.save_status(status_file, init=True, **kwargs)
+            self.save_status("initial", init=True, **kwargs)
+            self.save_status("latest", init=True, **kwargs)
 
             self._logging.info("The initial setup and configuration is saved [status_file = {}].".format(status_file))
         else:
@@ -313,8 +313,11 @@ class FermiAnalysis():
         
     @property
     def flux_info(self):
-        properties = ["ts", "e2dnde", "e2dnde_err", "e2dnde_err_hi", "e2dnde_err_lo", "e2dnde_ul95"]
-        return {prop: self.output["sed"][prop] for prop in properties}
+        properties = ["ts"]
+        return {"ts": self.target.data["ts"],
+                "eflux": self.target["eflux"],
+                "eflux_err": self.target["eflux_err"],
+                "eflux_ul95": self.target["eflux_ul95"] }
 
     def show_fit_result(self):
         pngs = glob(f'{self._outdir}/simple*.png')
@@ -323,7 +326,7 @@ class FermiAnalysis():
             my_image = Image(png)
             display(my_image)
                 
-    def src_prob(self, status = "simple"):
+    def src_prob(self, status = "latest"):
 
         if not(os.path.exists(self._outdir+f'/{status}_00.xml')):
             self._logging.error("Run FermiAnalysis.fit first.")
@@ -341,7 +344,7 @@ class FermiAnalysis():
         
         diffResps['evfile'] = self._outdir+'/ft1_filtered_00.fits'
         diffResps['scfile'] = self.gta.config["data"]["scfile"]
-        diffResps['srcmdl'] = self._outdir+'/simple_00.xml'
+        diffResps['srcmdl'] = self._outdir+f'/{status}_00.xml'
         diffResps['irfs'] = self.gta.config["gtlike"]["irfs"]
         diffResps['evtype'] = self.gta.config["selection"]["evtype"]
         diffResps['chatter'] = int(self.verbosity)-1
@@ -361,10 +364,10 @@ class FermiAnalysis():
     def _construct_event_table(self):
         table = Table(fits.open(self._outdir+'/ft1_srcprob_00.fits')[1].data)
         table["TIME"] -= self.trigger 
-        self._event_table  = table["ENERGY", "RA", "DEC", "TIME", "Source"]
+        self._event_table  = table["ENERGY", "RA", "DEC", "TIME", self.target_name]
 
 
-    def peek_lc(self, grb_only=False, binsz=10):
+    def peek_lc(self, grb_only=False, binsz=10, show_cnt=True, **kwargs):
 
         if self.event_table is None:
             try:
@@ -376,12 +379,12 @@ class FermiAnalysis():
             return
 
         if grb_only:
-            event = self.event_table[self.event_table["Source"]>0.9]
+            event = self.event_table[self.event_table[self.target_name]>0.9]
         else:
             event = self.event_table
         event = self.event_table
 
-        ax, temp = plot_cnt_lc(event, binsz=10, c=event["Source"])
+        ax, temp = plot_cnt_lc(event, binsz=binsz, c=event[self.target_name], show_cnt=show_cnt,**kwargs)
         return ax
 
     def peek_irfs(self):
@@ -489,8 +492,8 @@ class FermiAnalysis():
 
 
     def fit(self, status_file="simple", pre_status=None,
-        optimizer = 'NEWMINUIT', fix_all=True,
-        fix_galdiff=True, remove_weak_srcs=False,
+        optimizer = 'NEWMINUIT', fix_all=False,
+        fix_galdiff=False, remove_weak_srcs=True,
         return_output=False, **kwargs):
         """
         Perform a simple fitting with various cuts
@@ -580,15 +583,15 @@ class FermiAnalysis():
         if type(jobs) == str:
             jobs = [jobs]
 
-        if "ts" in jobs:
+        if ("ts" in jobs) or ("TS" in jobs):
             o = self._ts_map(model=model)
             self.output['ts'] = o
 
-        if "resid" in jobs:
+        if ("resid" in jobs):
             o = self._resid_dist(model=model)
             self.output['resid'] = o
 
-        if "sed" in jobs:
+        if ("sed" in jobs) or ("SED" in jobs):
             outfile=status_file+"_sed.fits"
             o = self._calc_sed(outfile=outfile, **kwargs)
             self.output['sed'] = o
